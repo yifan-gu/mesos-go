@@ -26,12 +26,14 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	log "github.com/golang/glog"
 )
 
 // HTTPTransporter implements the interfaces of the Transporter.
 type HTTPTransporter struct {
+	sync.Mutex
 	// If the host is empty("") then it will listen on localhost.
 	// If the port is empty("") then it will listen on random port.
 	upid         *upid.UPID
@@ -53,6 +55,8 @@ func NewHTTPTransporter(upid *upid.UPID) *HTTPTransporter {
 
 // Send sends the message to its specified upid.
 func (t *HTTPTransporter) Send(msg *Message) error {
+	t.Lock()
+	defer t.Unlock()
 	log.V(2).Infof("Sending message to %v via http\n", msg.UPID)
 	req, err := t.makeLibprocessRequest(msg)
 	if err != nil {
@@ -75,6 +79,8 @@ func (t *HTTPTransporter) Recv() *Message {
 
 // Install the request URI according to the message's name.
 func (t *HTTPTransporter) Install(msgName string) {
+	t.Lock()
+	defer t.Unlock()
 	requestURI := fmt.Sprintf("/%s/%s", t.upid.ID, msgName)
 	t.mux.HandleFunc(requestURI, t.messageHandler)
 }
@@ -82,6 +88,7 @@ func (t *HTTPTransporter) Install(msgName string) {
 // Start starts the http transporter. This will block, should be put
 // in a goroutine.
 func (t *HTTPTransporter) Start() error {
+	t.Lock()
 	// NOTE: Explicitly specifis IPv4 because Libprocess
 	// only supports IPv4 for now.
 	ln, err := net.Listen("tcp4", net.JoinHostPort(t.upid.Host, t.upid.Port))
@@ -95,7 +102,7 @@ func (t *HTTPTransporter) Start() error {
 	}
 	t.upid.Host, t.upid.Port = host, port
 	t.listener = ln
-
+	t.Unlock()
 	// TODO(yifan): Set read/write deadline.
 	if err := http.Serve(ln, t.mux); err != nil {
 		return err
@@ -105,11 +112,15 @@ func (t *HTTPTransporter) Start() error {
 
 // Stop stops the http transporter by closing the listener.
 func (t *HTTPTransporter) Stop() error {
+	t.Lock()
+	defer t.Unlock()
 	return t.listener.Close()
 }
 
 // UPID returns the upid of the transporter.
 func (t *HTTPTransporter) UPID() *upid.UPID {
+	t.Lock()
+	defer t.Unlock()
 	return t.upid
 }
 

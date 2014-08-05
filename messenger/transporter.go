@@ -18,6 +18,10 @@
 
 package messenger
 
+import (
+	"github.com/mesos/mesos-go/upid"
+)
+
 // Transporter defines the interfaces that should be implemented.
 type Transporter interface {
 	Send(msg *Message) error

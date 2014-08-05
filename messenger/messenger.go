@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"code.google.com/p/gogoprotobuf/proto"
@@ -61,6 +62,7 @@ type Messenger interface {
 
 // MesosMessenger is an implementation of the Messenger interface.
 type MesosMessenger struct {
+	sync.Mutex
 	upid              *upid.UPID
 	encodingQueue     chan *Message
 	sendingQueue      chan *Message
@@ -85,6 +87,9 @@ func NewMesosMessenger(upid *upid.UPID) *MesosMessenger {
 
 // Install installs the handler with the given message.
 func (m *MesosMessenger) Install(handler MessageHandler, msg proto.Message) error {
+	m.Lock()
+	defer m.Unlock()
+
 	// Check if the message is a pointer.
 	mtype := reflect.TypeOf(msg)
 	if mtype.Kind() != reflect.Ptr {
@@ -107,6 +112,9 @@ func (m *MesosMessenger) Install(handler MessageHandler, msg proto.Message) erro
 // So there is no need to fire a goroutine each time to send a message,
 // but we need to verify this later.
 func (m *MesosMessenger) Send(upid *upid.UPID, msg proto.Message) error {
+	m.Lock()
+	defer m.Unlock()
+
 	if upid.Equal(m.upid) {
 		return fmt.Errorf("Send the message to self")
 	}
@@ -118,6 +126,9 @@ func (m *MesosMessenger) Send(upid *upid.UPID, msg proto.Message) error {
 
 // Start starts the messenger.
 func (m *MesosMessenger) Start() error {
+	m.Lock()
+	defer m.Unlock()
+
 	errChan := make(chan error)
 	go func() {
 		if err := m.tr.Start(); err != nil {
@@ -132,6 +143,9 @@ func (m *MesosMessenger) Start() error {
 	}
 
 	m.upid = m.tr.UPID()
+	if m.upid == nil {
+		return fmt.Errorf("Cannot get upid from the transporter")
+	}
 	for i := 0; i < sendRoutines; i++ {
 		go m.sendLoop()
 	}
@@ -146,6 +160,9 @@ func (m *MesosMessenger) Start() error {
 
 // Stop stops the messenger and clean up all the goroutines.
 func (m *MesosMessenger) Stop() {
+	m.Lock()
+	defer m.Unlock()
+
 	if err := m.tr.Stop(); err != nil {
 		log.Errorf("Failed to stop the transporter: %v\n", err)
 	}
@@ -154,6 +171,9 @@ func (m *MesosMessenger) Stop() {
 
 // UPID returns the upid of the messenger.
 func (m *MesosMessenger) UPID() *upid.UPID {
+	m.Lock()
+	defer m.Unlock()
+
 	return m.upid
 }
 
